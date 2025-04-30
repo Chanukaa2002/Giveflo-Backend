@@ -1,0 +1,699 @@
+openapi: 3.0.0
+info:
+  title: Giveflo Crowdfunding API
+  description: API documentation for Giveflo crowdfunding platform - Strictly aligned with FR requirements
+  version: 1.0.0
+servers:
+  - url: https://api.giveflo.com/v1
+    description: Production server
+tags:
+  - name: Authentication
+    description: User registration and login (FR1)
+  - name: Users
+    description: User profile management (FR1.3)
+  - name: Campaigns
+    description: Campaign operations (FR2)
+  - name: Donations
+    description: Donation processing (FR3)
+  - name: Admin
+    description: Administrative functions (FR5)
+
+paths:
+  /auth/register/donor:
+    post:
+      tags: [Authentication]
+      summary: Register as a Donor (FR1.1)
+      description: Endpoint for donor registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DonorRegistration'
+      responses:
+        '201':
+          description: Donor registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /auth/register/organization:
+    post:
+      tags: [Authentication]
+      summary: Register as an Organization (FR1.1, FR1.2)
+      description: Endpoint for organization registration with document verification
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OrganizationRegistration'
+      responses:
+        '201':
+          description: Organization registered (pending verification)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login for all user types (FR1.3)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLogin'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /auth/password-reset:
+    post:
+      tags: [Authentication]
+      summary: Request password reset (FR1.3)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Reset link sent if email exists
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile (FR1.3)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/DonorProfile'
+                  - $ref: '#/components/schemas/OrganizationProfile'
+    patch:
+      tags: [Users]
+      summary: Update user profile (FR1.3)
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/DonorUpdate'
+                - $ref: '#/components/schemas/OrganizationUpdate'
+      responses:
+        '200':
+          description: Profile updated successfully
+
+  /campaigns:
+    get:
+      tags: [Campaigns]
+      summary: Browse campaigns with filtering (FR3.1)
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [trending, newest, deadline]
+      responses:
+        '200':
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Campaign'
+    post:
+      tags: [Campaigns]
+      summary: Create a new campaign (FR2.1, FR2.2)
+      security:
+        - BearerAuth: []
+      description: Only verified organizations can create campaigns
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CampaignCreate'
+      responses:
+        '201':
+          description: Campaign created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '403':
+          description: Only verified organizations can create campaigns
+
+  /campaigns/{id}:
+    get:
+      tags: [Campaigns]
+      summary: Get campaign details with progress (FR4.1, FR4.2)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignDetails'
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign (FR2.3)
+      security:
+        - BearerAuth: []
+      description: Only campaign owner can update (before donations start)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CampaignUpdate'
+      responses:
+        '200':
+          description: Campaign updated successfully
+        '403':
+          description: Only owner can update campaign
+        '400':
+          description: Cannot update campaign after donations have started
+    delete:
+      tags: [Campaigns]
+      summary: Delete campaign (FR2.3)
+      security:
+        - BearerAuth: []
+      description: Only campaign owner can delete (before donations start)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Campaign deleted successfully
+        '403':
+          description: Only owner can delete campaign
+        '400':
+          description: Cannot delete campaign after donations have started
+
+  /campaigns/{id}/updates:
+    post:
+      tags: [Campaigns]
+      summary: Post campaign update (FR2.3, FR4.3)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CampaignUpdatePost'
+      responses:
+        '201':
+          description: Update posted successfully
+        '403':
+          description: Only campaign owner can post updates
+
+  /donations:
+    post:
+      tags: [Donations]
+      summary: Create a donation (FR3.2, FR3.3)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DonationCreate'
+      responses:
+        '201':
+          description: Donation processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DonationReceipt'
+
+  /admin/organizations/pending:
+    get:
+      tags: [Admin]
+      summary: Get pending organization verifications (FR5.1)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of pending organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PendingOrganization'
+
+  /admin/organizations/{id}/verify:
+    post:
+      tags: [Admin]
+      summary: Approve/reject organization (FR5.1)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [approved, rejected]
+                reason:
+                  type: string
+                  description: Required if status is rejected
+      responses:
+        '200':
+          description: Verification status updated
+
+  /admin/campaigns/{id}:
+    delete:
+      tags: [Admin]
+      summary: Remove fraudulent campaign (FR5.2)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Campaign removed successfully
+
+  /admin/analytics:
+    get:
+      tags: [Admin]
+      summary: Get platform analytics (FR5.3)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analytics'
+
+components:
+  schemas:
+    DonorRegistration:
+      type: object
+      required: [email, password, name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+          minLength: 2
+        avatar:
+          type: string
+          format: binary
+
+    OrganizationRegistration:
+      type: object
+      required: [email, password, name, document]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+          minLength: 2
+        description:
+          type: string
+        document:
+          type: string
+          format: binary
+        logo:
+          type: string
+          format: binary
+
+    UserLogin:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        userType:
+          type: string
+          enum: [donor, organization, admin]
+        verified:
+          type: boolean
+
+    DonorProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        userType:
+          type: string
+          enum: [donor]
+        avatar:
+          type: string
+          format: uri
+        totalDonations:
+          type: number
+
+    OrganizationProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        userType:
+          type: string
+          enum: [organization]
+        description:
+          type: string
+        logo:
+          type: string
+          format: uri
+        verified:
+          type: boolean
+        verificationStatus:
+          type: string
+          enum: [pending, approved, rejected]
+        verificationReason:
+          type: string
+        totalCampaigns:
+          type: integer
+        totalRaised:
+          type: number
+
+    DonorUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        avatar:
+          type: string
+          format: binary
+
+    OrganizationUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        logo:
+          type: string
+          format: binary
+
+    CampaignCreate:
+      type: object
+      required: [title, description, goalAmount, deadline, category]
+      properties:
+        title:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+        goalAmount:
+          type: number
+          minimum: 1
+        deadline:
+          type: string
+          format: date
+        category:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+            format: binary
+          maxItems: 5
+        video:
+          type: string
+          format: binary
+
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        goalAmount:
+          type: number
+        amountRaised:
+          type: number
+        progress:
+          type: number
+          description: Percentage funded (FR4.1)
+        deadline:
+          type: string
+          format: date
+        category:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+            format: uri
+        video:
+          type: string
+          format: uri
+        organization:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            logo:
+              type: string
+              format: uri
+
+    CampaignDetails:
+      allOf:
+        - $ref: '#/components/schemas/Campaign'
+        - type: object
+          properties:
+            updates:
+              type: array
+              items:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                  images:
+                    type: array
+                    items:
+                      type: string
+                      format: uri
+            recentDonations:
+              type: array
+              items:
+                type: object
+                properties:
+                  amount:
+                    type: number
+                  date:
+                    type: string
+                    format: date-time
+                  donor:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      avatar:
+                        type: string
+                        format: uri
+                  message:
+                    type: string
+              description: Recent donations list (FR4.2)
+
+    CampaignUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        goalAmount:
+          type: number
+        deadline:
+          type: string
+          format: date
+        images:
+          type: array
+          items:
+            type: string
+            format: binary
+
+    CampaignUpdatePost:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+            format: binary
+
+    DonationCreate:
+      type: object
+      required: [campaignId, amount, paymentMethod]
+      properties:
+        campaignId:
+          type: string
+        amount:
+          type: number
+          minimum: 1
+        paymentMethod:
+          type: string
+          enum: [card, paypal]
+        message:
+          type: string
+        anonymous:
+          type: boolean
+          default: false
+
+    DonationReceipt:
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: number
+        date:
+          type: string
+          format: date-time
+        campaign:
+          type: object
+          properties:
+            title:
+              type: string
+            id:
+              type: string
+        receiptUrl:
+          type: string
+          format: uri
+          description: Email receipt sent to donor (FR3.3)
+
+    PendingOrganization:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        documentUrl:
+          type: string
+          format: uri
+        submittedAt:
+          type: string
+          format: date-time
+          description: Organization verification documents (FR1.2)
+
+    Analytics:
+      type: object
+      properties:
+        totalCampaigns:
+          type: integer
+        activeCampaigns:
+          type: integer
+        totalDonations:
+          type: number
+        totalDonors:
+          type: integer
+        donationsByCategory:
+          type: object
+          additionalProperties:
+            type: number
+          description: Basic admin analytics (FR5.3)
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
