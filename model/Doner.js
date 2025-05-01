@@ -17,6 +17,11 @@ const donerSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    contributions: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+      },
+    ],
   },
   { timestamps: true }
 );
